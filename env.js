@@ -1,0 +1,7 @@
+# Razorpay Payment Gateway Configuration
+RAZORPAY_KEY_ID=rzp_test_RBWqUpRpQB3cQC
+RAZORPAY_KEY_SECRET=bHrDgC15IUr7F3uFza5Cx3Bi
+RAZORPAY_WEBHOOK_SECRET=your-webhook-secret
+
+# Frontend Razorpay Key (for client-side)
+REACT_APP_RAZORPAY_KEY_ID=rzp_test_rzp_test_RBWqUpRpQB3cQC
