@@ -1,7 +1,7 @@
 # consultant-space-backend
 The backend code of the consultant-space website here. Backend code of the consultant-space website is stored here. This respository contains the files realted to the application "consultant-space" "Your Go-To Experts"
 
-# Live Consultant App (Starter Kit)
+# Live consultant-space App (Starter Kit)
 
 ## Tech Stack
 - Backend: Node.js with Express (server/)
