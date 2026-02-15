@@ -1,11 +1,20 @@
 const Razorpay = require('razorpay');
 const crypto = require('crypto');
 
-// Initialize Razorpay
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID,
-  key_secret: process.env.RAZORPAY_KEY_SECRET,
-});
+// Initialize Razorpay only when credentials are present (allows server to start locally without .env)
+let razorpay = null;
+if (process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET) {
+  razorpay = new Razorpay({
+    key_id: process.env.RAZORPAY_KEY_ID,
+    key_secret: process.env.RAZORPAY_KEY_SECRET,
+  });
+} else {
+  console.warn('Razorpay credentials not set (RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET). Payment routes will return errors until configured.');
+}
+
+function ensureRazorpay() {
+  if (!razorpay) throw new Error('Payment gateway is not configured. Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET in .env');
+}
 
 class PaymentService {
   /**
@@ -15,6 +24,7 @@ class PaymentService {
    * @returns {Object} Order details
    */
   async createOrder(booking, user) {
+    ensureRazorpay();
     try {
       const orderData = {
         amount: booking.amount * 100, // Razorpay expects amount in paise
@@ -63,6 +73,7 @@ class PaymentService {
    * @returns {boolean} Verification result
    */
   verifyPaymentSignature(orderId, paymentId, signature) {
+    if (!process.env.RAZORPAY_KEY_SECRET) return false;
     try {
       const text = `${orderId}|${paymentId}`;
       const generatedSignature = crypto
@@ -83,6 +94,7 @@ class PaymentService {
    * @returns {Object} Payment details
    */
   async getPaymentDetails(paymentId) {
+    ensureRazorpay();
     try {
       const payment = await razorpay.payments.fetch(paymentId);
       
@@ -175,6 +187,7 @@ class PaymentService {
    * @returns {Object} Refund details
    */
   async processRefund(paymentId, amount, reason) {
+    ensureRazorpay();
     try {
       const refundData = {
         amount: amount,

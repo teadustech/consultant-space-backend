@@ -63,7 +63,7 @@ app.get("/api", (req, res) => {
 
 // MongoDB connection
 mongoose
-  .connect(process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://localhost:27017/go-to-experts', { useNewUrlParser: true, useUnifiedTopology: true })
+  .connect(process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://localhost:27017/go-to-experts')
   .then(() => {
     console.log("Connected to MongoDB");
     const port = process.env.PORT || 5000;
