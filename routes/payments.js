@@ -222,16 +222,30 @@ router.post('/verify', authenticateToken, validatePaymentVerification, async (re
  * @desc    Handle Razorpay webhooks
  * @access  Public
  */
-router.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+router.post('/webhook', async (req, res) => {
   try {
     const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
-    const signature = req.headers['x-razorpay-signature'];
+    if (!webhookSecret) {
+      console.error('RAZORPAY_WEBHOOK_SECRET is not set');
+      return res.status(503).json({ message: 'Webhook not configured' });
+    }
 
-    // Verify webhook signature
+    const signature = req.headers['x-razorpay-signature'];
+    if (!signature) {
+      return res.status(400).json({ message: 'Missing signature' });
+    }
+
+    // Use raw body for signature verification (set by express.json verify in index.js)
+    const rawBody = req.rawBody;
+    if (!rawBody || !Buffer.isBuffer(rawBody)) {
+      console.error('Webhook raw body not available');
+      return res.status(400).json({ message: 'Invalid request body' });
+    }
+
     const crypto = require('crypto');
     const expectedSignature = crypto
       .createHmac('sha256', webhookSecret)
-      .update(req.body)
+      .update(rawBody)
       .digest('hex');
 
     if (signature !== expectedSignature) {
@@ -239,7 +253,7 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
       return res.status(400).json({ message: 'Invalid signature' });
     }
 
-    const webhookData = JSON.parse(req.body);
+    const webhookData = JSON.parse(rawBody.toString());
     const event = webhookData.event;
 
     console.log('Webhook received:', event);

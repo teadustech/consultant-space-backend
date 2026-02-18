@@ -6,6 +6,25 @@ const router = express.Router();
 const Consultant = require('../models/Consultant');
 const Seeker = require('../models/Seeker');
 const { sendPasswordResetEmail, sendPasswordResetConfirmation } = require('../utils/emailService');
+const { authenticateToken } = require('../middleware/auth');
+
+// Allow only admin for listing all seekers
+const requireAdmin = (req, res, next) => {
+  if (req.user.userType !== 'admin') {
+    return res.status(403).json({ message: 'Admin access required' });
+  }
+  next();
+};
+
+// Allow seeker to access only own profile, or admin
+const requireSeekerOwnProfileOrAdmin = (req, res, next) => {
+  const isAdmin = req.user.userType === 'admin';
+  const isOwnProfile = req.user.userType === 'seeker' && req.user.userId.toString() === req.params.id;
+  if (!isAdmin && !isOwnProfile) {
+    return res.status(403).json({ message: 'Access denied' });
+  }
+  next();
+};
 
 // Consultant Registration
 router.post('/consultant/register', async (req, res) => {
@@ -154,8 +173,8 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// Get all seekers (for admin/database inspection)
-router.get('/seekers/all', async (req, res) => {
+// Get all seekers (admin only)
+router.get('/seekers/all', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const seekers = await Seeker.find({})
       .select('-password')
@@ -171,8 +190,8 @@ router.get('/seekers/all', async (req, res) => {
   }
 });
 
-// Get seeker profile
-router.get('/seekers/:id/profile', async (req, res) => {
+// Get seeker profile (own profile or admin)
+router.get('/seekers/:id/profile', authenticateToken, requireSeekerOwnProfileOrAdmin, async (req, res) => {
   try {
     const seeker = await Seeker.findById(req.params.id)
       .select('-password');
@@ -188,8 +207,8 @@ router.get('/seekers/:id/profile', async (req, res) => {
   }
 });
 
-// Update seeker profile
-router.put('/seekers/:id/profile', async (req, res) => {
+// Update seeker profile (own profile or admin)
+router.put('/seekers/:id/profile', authenticateToken, requireSeekerOwnProfileOrAdmin, async (req, res) => {
   try {
     const { fullName, email, phone } = req.body;
     

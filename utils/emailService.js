@@ -1,12 +1,19 @@
 const nodemailer = require('nodemailer');
 
+function isEmailConfigured() {
+  return !!(process.env.EMAIL_USER && process.env.EMAIL_PASSWORD);
+}
+
 // Create transporter for Gmail SMTP
 const createTransporter = () => {
+  if (!isEmailConfigured()) {
+    throw new Error('Email is not configured. Set EMAIL_USER and EMAIL_PASSWORD in .env');
+  }
   return nodemailer.createTransporter({
     service: 'gmail',
     auth: {
-      user: process.env.EMAIL_USER, // Your Gmail address
-      pass: process.env.EMAIL_PASSWORD // Your Gmail app password
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASSWORD
     }
   });
 };
@@ -14,6 +21,10 @@ const createTransporter = () => {
 // Send password reset email
 const sendPasswordResetEmail = async (email, resetToken, userType, userName) => {
   try {
+    if (!isEmailConfigured()) {
+      console.warn('Email not configured (EMAIL_USER/EMAIL_PASSWORD). Skipping password reset email.');
+      return { success: false, error: 'Email service not configured' };
+    }
     const transporter = createTransporter();
     
     const resetUrl = `${process.env.CLIENT_URL || 'http://localhost:3000'}/reset-password?token=${resetToken}&userType=${userType}`;
@@ -87,6 +98,10 @@ const sendPasswordResetEmail = async (email, resetToken, userType, userName) => 
 // Send password reset confirmation email
 const sendPasswordResetConfirmation = async (email, userName) => {
   try {
+    if (!isEmailConfigured()) {
+      console.warn('Email not configured. Skipping password reset confirmation email.');
+      return { success: false, error: 'Email service not configured' };
+    }
     const transporter = createTransporter();
     
     const mailOptions = {
@@ -149,6 +164,10 @@ const sendPasswordResetConfirmation = async (email, userName) => {
 // Send meeting confirmation email with Google Meet link
 const sendMeetingConfirmation = async ({ to, consultantName, seekerName, meetingLink, sessionDate, startTime, sessionDuration, sessionType }) => {
   try {
+    if (!isEmailConfigured()) {
+      console.warn('Email not configured. Skipping meeting confirmation email.');
+      return { success: false, error: 'Email service not configured' };
+    }
     const transporter = createTransporter();
     
     // Format date and time
