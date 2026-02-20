@@ -20,10 +20,17 @@ app.use(securityHeaders);
 app.use(customSecurityHeaders);
 
 // CORS configuration with security
+// In production: allow deployed client + ALLOWED_ORIGINS + localhost (for local frontend hitting this API)
+const productionOrigins = (() => {
+  const fromEnv = process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(',').map(s => s.trim()).filter(Boolean)
+    : [];
+  const defaults = ['https://the-consultant-client.vercel.app'];
+  const localDev = ['http://localhost:3000', 'http://localhost:8081'];
+  return [...new Set([...defaults, ...fromEnv, ...localDev])];
+})();
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production' 
-    ? (process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : ['https://the-consultant-client.vercel.app'])
-    : ['http://localhost:3000', 'http://localhost:8081'], // Added Expo dev server for mobile app
+  origin: process.env.NODE_ENV === 'production' ? productionOrigins : ['http://localhost:3000', 'http://localhost:8081'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization']
