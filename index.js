@@ -25,7 +25,10 @@ const productionOrigins = (() => {
   const fromEnv = process.env.ALLOWED_ORIGINS
     ? process.env.ALLOWED_ORIGINS.split(',').map(s => s.trim()).filter(Boolean)
     : [];
-  const defaults = ['https://the-consultant-client.vercel.app'];
+  const defaults = [
+    'https://the-consultant-client.vercel.app',
+    'https://the-consultant-frontend.vercel.app'
+  ];
   const localDev = ['http://localhost:3000', 'http://localhost:8081'];
   return [...new Set([...defaults, ...fromEnv, ...localDev])];
 })();
