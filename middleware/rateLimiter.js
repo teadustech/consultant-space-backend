@@ -42,8 +42,34 @@ const suspiciousActivityLimiter = rateLimit({
   legacyHeaders: false
 });
 
+// Restrict credential guessing and password-reset abuse.
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: {
+    error: 'Too many authentication attempts from this IP, please try again later.',
+    retryAfter: '15 minutes'
+  },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+// Keep password-reset requests stricter because they can trigger outbound email.
+const passwordResetLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: {
+    error: 'Too many password reset attempts from this IP, please try again later.',
+    retryAfter: '15 minutes'
+  },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
 module.exports = {
   publicSearchLimiter,
   authenticatedLimiter,
-  suspiciousActivityLimiter
-}; 
+  suspiciousActivityLimiter,
+  authLimiter,
+  passwordResetLimiter
+};

@@ -3,14 +3,39 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const router = express.Router();
 const Consultant = require('../models/Consultant');
-const { publicSearchLimiter, authenticatedLimiter } = require('../middleware/rateLimiter');
+const { publicSearchLimiter, authenticatedLimiter, authLimiter } = require('../middleware/rateLimiter');
 const { sanitizeSearchParams, sanitizeConsultantData, validateSearchResults, handleValidationErrors } = require('../middleware/dataSanitizer');
 const { authenticateToken, requireSeeker, requireConsultant } = require('../middleware/auth');
 
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const isStrongEnoughPassword = (password) => typeof password === 'string' && password.length >= 12;
+const usernamePattern = /^[a-z0-9-]{3,40}$/;
+
+const normalizePublicProfile = (consultant) => ({
+  id: consultant._id,
+  _id: consultant._id,
+  fullName: consultant.fullName,
+  username: consultant.username,
+  domain: consultant.domain,
+  tagline: consultant.tagline,
+  bio: consultant.bio,
+  qualifications: consultant.qualifications,
+  experience: consultant.experienceSummary || `${consultant.experience} years`,
+  expertise: consultant.profileExpertise || [],
+  services: consultant.services || [],
+  profilePicture: consultant.profilePicture || consultant.profileImage,
+  hourlyRate: consultant.hourlyRate,
+  rating: consultant.rating,
+  totalReviews: consultant.totalReviews
+});
+
 // Consultant Registration (alternative endpoint)
-router.post('/register', async (req, res) => {
+router.post('/register', authLimiter, async (req, res) => {
   try {
     const { fullName, email, phone, domain, experience, rate, password } = req.body;
+    if (!isStrongEnoughPassword(password)) {
+      return res.status(400).json({ message: 'Password must be at least 12 characters long' });
+    }
 
     // Check if consultant already exists
     const existingConsultant = await Consultant.findOne({ email });
@@ -95,10 +120,11 @@ router.get('/public/search',
       }
       
       if (query) {
+        const safeQuery = escapeRegex(query);
         searchCriteria.$or = [
-          { fullName: { $regex: query, $options: 'i' } },
-          { domain: { $regex: query, $options: 'i' } },
-          { expertise: { $regex: query, $options: 'i' } }
+          { fullName: { $regex: safeQuery, $options: 'i' } },
+          { domain: { $regex: safeQuery, $options: 'i' } },
+          { expertise: { $regex: safeQuery, $options: 'i' } }
         ];
       }
       
@@ -177,10 +203,11 @@ router.get('/search',
       }
       
       if (query) {
+        const safeQuery = escapeRegex(query);
         searchCriteria.$or = [
-          { fullName: { $regex: query, $options: 'i' } },
-          { domain: { $regex: query, $options: 'i' } },
-          { expertise: { $regex: query, $options: 'i' } }
+          { fullName: { $regex: safeQuery, $options: 'i' } },
+          { domain: { $regex: safeQuery, $options: 'i' } },
+          { expertise: { $regex: safeQuery, $options: 'i' } }
         ];
       }
       
@@ -223,6 +250,36 @@ router.get('/domains', async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch domains' });
   }
 });
+
+// Public profile by username for dedicated consultant profile pages
+router.get('/public-profile/username/:username',
+  publicSearchLimiter,
+  async (req, res) => {
+    try {
+      const username = String(req.params.username || '').trim().toLowerCase();
+
+      if (!usernamePattern.test(username)) {
+        return res.status(404).json({ message: 'Consultant profile not found' });
+      }
+
+      const consultant = await Consultant.findOne({
+        username,
+        profileEnabled: true,
+        isVerified: true,
+        isAvailable: true
+      }).select('fullName username domain tagline bio qualifications experience experienceSummary profileExpertise services profilePicture profileImage hourlyRate rating totalReviews isVerified isAvailable profileEnabled');
+
+      if (!consultant) {
+        return res.status(404).json({ message: 'Consultant profile not found' });
+      }
+
+      res.json(normalizePublicProfile(consultant));
+    } catch (error) {
+      console.error('Public username profile fetch error:', error);
+      res.status(500).json({ error: 'Failed to fetch profile' });
+    }
+  }
+);
 
 // Public consultant profile (limited data)
 router.get('/:id/public-profile', 
@@ -299,23 +356,6 @@ router.get('/profile/me',
   }
 );
 
-// Get all consultants (for admin/database inspection)
-router.get('/all', async (req, res) => {
-  try {
-    const consultants = await Consultant.find({})
-      .select('-password')
-      .sort({ createdAt: -1 });
-    
-    res.json({
-      count: consultants.length,
-      consultants: consultants
-    });
-  } catch (error) {
-    console.error('Get all consultants error:', error);
-    res.status(500).json({ error: 'Failed to fetch consultants' });
-  }
-});
-
 // Update consultant profile
 router.put('/:id/profile', 
   authenticateToken,
@@ -342,7 +382,15 @@ router.put('/:id/profile',
         certifications,
         workingHours,
         minBookingNotice,
-        maxBookingAdvance
+        maxBookingAdvance,
+        username,
+        tagline,
+        qualifications,
+        experienceSummary,
+        profileEnabled,
+        profilePicture,
+        profileExpertise,
+        services
       } = req.body;
       
       const updateData = {};
@@ -351,11 +399,19 @@ router.put('/:id/profile',
       if (phone) updateData.phone = phone;
       if (domain) updateData.domain = domain;
       if (experience !== undefined) {
-        // Handle experience as either number or string
-        const expValue = typeof experience === 'string' ? experience : experience.toString();
+        const expValue = Number(experience);
+        if (!Number.isFinite(expValue) || expValue < 0) {
+          return res.status(400).json({ error: 'Experience must be a valid non-negative number' });
+        }
         updateData.experience = expValue;
       }
-      if (hourlyRate !== undefined) updateData.hourlyRate = parseInt(hourlyRate);
+      if (hourlyRate !== undefined) {
+        const rateValue = Number(hourlyRate);
+        if (!Number.isFinite(rateValue) || rateValue <= 0) {
+          return res.status(400).json({ error: 'Hourly rate must be a valid positive number' });
+        }
+        updateData.hourlyRate = rateValue;
+      }
       if (expertise !== undefined) updateData.expertise = expertise;
       if (bio !== undefined) updateData.bio = bio;
       if (isAvailable !== undefined) updateData.isAvailable = isAvailable;
@@ -369,6 +425,37 @@ router.put('/:id/profile',
       if (workingHours !== undefined) updateData.workingHours = workingHours;
       if (minBookingNotice !== undefined) updateData.minBookingNotice = minBookingNotice;
       if (maxBookingAdvance !== undefined) updateData.maxBookingAdvance = maxBookingAdvance;
+
+      if (username !== undefined) {
+        const normalizedUsername = String(username).trim().toLowerCase();
+        if (!usernamePattern.test(normalizedUsername)) {
+          return res.status(400).json({ error: 'Username must be 3-40 characters and use only lowercase letters, numbers, and hyphens' });
+        }
+        updateData.username = normalizedUsername;
+      }
+      if (tagline !== undefined) updateData.tagline = tagline;
+      if (qualifications !== undefined) updateData.qualifications = qualifications;
+      if (experienceSummary !== undefined) updateData.experienceSummary = experienceSummary;
+      if (profileEnabled !== undefined) updateData.profileEnabled = Boolean(profileEnabled);
+      if (profilePicture !== undefined) updateData.profilePicture = profilePicture;
+      if (profileExpertise !== undefined) {
+        if (!Array.isArray(profileExpertise)) {
+          return res.status(400).json({ error: 'Profile expertise must be an array' });
+        }
+        updateData.profileExpertise = profileExpertise.map(item => String(item).trim()).filter(Boolean);
+      }
+      if (services !== undefined) {
+        if (!Array.isArray(services)) {
+          return res.status(400).json({ error: 'Services must be an array' });
+        }
+        updateData.services = services.map((service, index) => ({
+          id: String(service.id || `${Date.now()}-${index}`),
+          name: String(service.name || '').trim(),
+          description: String(service.description || '').trim(),
+          price: Number(service.price),
+          duration: String(service.duration || '').trim()
+        })).filter(service => service.name && Number.isFinite(service.price) && service.price >= 0);
+      }
       
       const consultant = await Consultant.findByIdAndUpdate(
         req.params.id,
@@ -386,23 +473,34 @@ router.put('/:id/profile',
       });
     } catch (error) {
       console.error('Profile update error:', error);
+      if (error.code === 11000 && error.keyPattern?.username) {
+        return res.status(400).json({ error: 'Username is already taken' });
+      }
+      if (error.name === 'ValidationError') {
+        return res.status(400).json({ error: error.message });
+      }
       res.status(500).json({ error: 'Failed to update profile' });
     }
   }
 );
 
 // Update consultant rates
-router.put('/:id/rates', async (req, res) => {
+router.put('/:id/rates', authenticateToken, requireConsultant, async (req, res) => {
   try {
+    if (req.params.id !== req.user.userId) {
+      return res.status(403).json({ error: 'You can only update your own rates' });
+    }
+
     const { hourlyRate } = req.body;
     
-    if (!hourlyRate || hourlyRate <= 0) {
+    const rateValue = Number(hourlyRate);
+    if (!Number.isFinite(rateValue) || rateValue <= 0) {
       return res.status(400).json({ error: 'Valid hourly rate is required' });
     }
     
     const consultant = await Consultant.findByIdAndUpdate(
       req.params.id,
-      { hourlyRate: parseInt(hourlyRate) },
+      { hourlyRate: rateValue },
       { new: true, runValidators: true }
     ).select('-password');
     
@@ -420,4 +518,4 @@ router.put('/:id/rates', async (req, res) => {
   }
 });
 
-module.exports = router; 
+module.exports = router;

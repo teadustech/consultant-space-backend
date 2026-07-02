@@ -81,7 +81,10 @@ class PaymentService {
         .update(text)
         .digest('hex');
 
-      return generatedSignature === signature;
+      const generatedBuffer = Buffer.from(generatedSignature, 'hex');
+      const signatureBuffer = Buffer.from(signature, 'hex');
+      return generatedBuffer.length === signatureBuffer.length &&
+        crypto.timingSafeEqual(generatedBuffer, signatureBuffer);
     } catch (error) {
       console.error('Error verifying payment signature:', error);
       return false;
@@ -126,21 +129,10 @@ class PaymentService {
     try {
       const payment = await this.getPaymentDetails(paymentData.payload.payment.entity.id);
       
-      // Verify signature
-      const isValidSignature = this.verifyPaymentSignature(
-        payment.orderId,
-        payment.paymentId,
-        paymentData.payload.payment.entity.signature
-      );
-
-      if (!isValidSignature) {
-        throw new Error('Invalid payment signature');
-      }
-
       return {
         success: true,
         payment,
-        bookingId: paymentData.payload.payment.entity.notes?.bookingId,
+        bookingId: payment.notes?.bookingId || paymentData.payload.payment.entity.notes?.bookingId,
         orderId: payment.orderId,
         amount: payment.amount / 100, // Convert from paise to rupees
         status: payment.status,

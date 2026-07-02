@@ -90,6 +90,23 @@ const bookingSchema = new mongoose.Schema({
     trim: true,
     maxlength: 1000
   },
+
+  // Optional dedicated profile service metadata
+  serviceId: {
+    type: String,
+    trim: true
+  },
+
+  serviceName: {
+    type: String,
+    trim: true,
+    maxlength: 120
+  },
+
+  servicePrice: {
+    type: Number,
+    min: 0
+  },
   
   // Status
   status: {
@@ -375,7 +392,6 @@ bookingSchema.index({ consultant: 1, sessionDate: 1 });
 bookingSchema.index({ seeker: 1, sessionDate: 1 });
 bookingSchema.index({ status: 1 });
 bookingSchema.index({ sessionDate: 1, startTime: 1 });
-bookingSchema.index({ bookingId: 1 });
 bookingSchema.index({ paymentStatus: 1 });
 bookingSchema.index({ createdAt: -1 });
 

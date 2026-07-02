@@ -38,10 +38,10 @@ Admin users are **not** created via the website; you create the first one with a
    ```
 2. **Optional:** set in `.env` before running the script:
    - `ADMIN_EMAIL` – admin login email (default: `admin@consultantspace.com`)
-   - `ADMIN_PASSWORD` – admin password (default: `Admin@123`)
+   - `ADMIN_PASSWORD` – admin password (required, minimum 12 characters)
    - `ADMIN_FULLNAME` – display name (default: `Super Admin`)
 3. **Log in on the site:** open **/admin/login** (e.g. `http://localhost:3000/admin/login`), use the email and password from step 1–2.
-4. **Change the default password** after first login if you used the default.
+4. Store the configured admin password securely and rotate it if it has been shared.
 
 To add more admins later, log in as a super_admin and use the Admin → Manage Admins section (or the API).
 

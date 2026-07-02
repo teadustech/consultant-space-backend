@@ -87,8 +87,17 @@ app.get("/api", (req, res) => {
   res.json({ message: "Welcome to the Live Consultant API" });
 });
 
+const getMongoDatabaseName = (uri) => {
+  try {
+    const parsed = new URL(uri);
+    return parsed.pathname && parsed.pathname !== '/' ? parsed.pathname.replace(/^\/+/, '') : '';
+  } catch {
+    return '';
+  }
+};
+
 // MongoDB connection
-const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://localhost:27017/go-to-experts';
+const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://localhost:27017/consultantspace';
 const isValidUri = mongoUri.startsWith('mongodb://') || mongoUri.startsWith('mongodb+srv://');
 if (!isValidUri) {
   console.error('FATAL: Invalid MongoDB URI. It must start with mongodb:// or mongodb+srv://');
@@ -96,11 +105,17 @@ if (!isValidUri) {
   console.error('Check MONGODB_URI or MONGO_URI in your .env file.');
   process.exit(1);
 }
+const mongoDbName = getMongoDatabaseName(mongoUri);
+if (!mongoDbName) {
+  console.error('FATAL: MongoDB URI must include an explicit database name, for example mongodb+srv://.../consultantspace');
+  console.error('Without a database name MongoDB defaults to "test", which is not safe for production.');
+  process.exit(1);
+}
 
 mongoose
   .connect(mongoUri)
   .then(() => {
-    console.log("Connected to MongoDB");
+    console.log(`Connected to MongoDB database: ${mongoDbName}`);
     const port = process.env.PORT || 5000;
     app.listen(port, () => console.log(`Server running on port ${port}`));
   })

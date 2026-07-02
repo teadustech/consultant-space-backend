@@ -54,7 +54,6 @@ seekerSchema.pre('save', function(next) {
 });
 
 // Create indexes for better performance
-seekerSchema.index({ email: 1 });
 seekerSchema.index({ fullName: 'text' });
 
 module.exports = mongoose.model('Seeker', seekerSchema);

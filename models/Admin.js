@@ -171,7 +171,6 @@ adminSchema.methods.getDefaultPermissions = function() {
 };
 
 // Create indexes for better performance
-adminSchema.index({ email: 1 });
 adminSchema.index({ role: 1 });
 adminSchema.index({ isActive: 1 });
 adminSchema.index({ createdAt: -1 });

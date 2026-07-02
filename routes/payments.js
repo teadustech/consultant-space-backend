@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { body, validationResult } = require('express-validator');
 const { authenticateToken } = require('../middleware/auth');
+const { authenticateAdmin, requireAdminPermission, ADMIN_PERMISSIONS } = require('../middleware/adminAuth');
 const paymentService = require('../utils/paymentService');
 const googleMeetService = require('../utils/googleMeetService');
 const emailService = require('../utils/emailService');
@@ -138,6 +139,18 @@ router.post('/verify', authenticateToken, validatePaymentVerification, async (re
       return res.status(403).json({ message: 'Access denied' });
     }
 
+    if (paymentDetails.orderId !== orderId) {
+      return res.status(400).json({ message: 'Payment order mismatch' });
+    }
+
+    if (paymentDetails.status !== 'captured') {
+      return res.status(400).json({ message: 'Payment has not been captured' });
+    }
+
+    if (paymentDetails.currency !== booking.currency) {
+      return res.status(400).json({ message: 'Payment currency mismatch' });
+    }
+
     // Check if payment amount matches booking amount
     const paymentAmount = paymentDetails.amount / 100; // Convert from paise
     if (paymentAmount !== booking.amount) {
@@ -157,7 +170,7 @@ router.post('/verify', authenticateToken, validatePaymentVerification, async (re
         seeker: booking.seeker,
         sessionType: booking.sessionType,
         sessionDuration: booking.sessionDuration,
-        sessionDate: booking.sessionDate,
+        sessionDate: booking.sessionDate.toISOString().split('T')[0],
         startTime: booking.startTime,
         description: booking.description
       });
@@ -248,7 +261,10 @@ router.post('/webhook', async (req, res) => {
       .update(rawBody)
       .digest('hex');
 
-    if (signature !== expectedSignature) {
+    const signatureBuffer = Buffer.from(signature, 'hex');
+    const expectedSignatureBuffer = Buffer.from(expectedSignature, 'hex');
+    if (signatureBuffer.length !== expectedSignatureBuffer.length ||
+        !crypto.timingSafeEqual(signatureBuffer, expectedSignatureBuffer)) {
       console.error('Invalid webhook signature');
       return res.status(400).json({ message: 'Invalid signature' });
     }
@@ -282,9 +298,9 @@ router.post('/webhook', async (req, res) => {
 /**
  * @route   POST /api/payments/refund
  * @desc    Process refund for a booking
- * @access  Private (Admin/Consultant)
+ * @access  Private (Admins with payment permission)
  */
-router.post('/refund', authenticateToken, validateRefund, async (req, res) => {
+router.post('/refund', authenticateAdmin, requireAdminPermission(ADMIN_PERMISSIONS.MANAGE_PAYMENTS), validateRefund, async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -292,27 +308,29 @@ router.post('/refund', authenticateToken, validateRefund, async (req, res) => {
     }
 
     const { paymentId, amount, reason } = req.body;
-    const userId = req.user.userId;
-    const userType = req.user.userType;
-
-    // Check if user is admin or consultant
-    if (userType !== 'admin' && userType !== 'consultant') {
-      return res.status(403).json({ message: 'Only admins and consultants can process refunds' });
-    }
-
-    // Process refund
-    const refund = await paymentService.processRefund(paymentId, amount, reason);
-
-    // Update booking status
     const booking = await Booking.findOne({ transactionId: paymentId });
-    if (booking) {
-      booking.paymentStatus = 'refunded';
-      booking.refundAmount = amount;
-      booking.cancellationReason = reason;
-      booking.cancelledBy = userType;
-      booking.cancellationDate = new Date();
-      await booking.save();
+    if (!booking) {
+      return res.status(404).json({ message: 'Booking not found for this payment' });
     }
+
+    if (booking.paymentStatus !== 'paid') {
+      return res.status(400).json({ message: 'Only paid bookings can be refunded' });
+    }
+
+    const refundAmountPaise = Number(amount);
+    const remainingRefundablePaise = Math.max(0, Math.round((booking.amount - (booking.refundAmount || 0)) * 100));
+    if (!Number.isInteger(refundAmountPaise) || refundAmountPaise <= 0 || refundAmountPaise > remainingRefundablePaise) {
+      return res.status(400).json({ message: 'Refund amount exceeds the refundable booking balance' });
+    }
+
+    const refund = await paymentService.processRefund(paymentId, refundAmountPaise, reason);
+
+    booking.paymentStatus = refundAmountPaise === remainingRefundablePaise ? 'refunded' : 'paid';
+    booking.refundAmount = (booking.refundAmount || 0) + (refundAmountPaise / 100);
+    booking.cancellationReason = reason;
+    booking.cancelledBy = 'admin';
+    booking.cancellationDate = new Date();
+    await booking.save();
 
     res.json({
       success: true,
@@ -502,7 +520,11 @@ async function handlePaymentSuccess(webhookData) {
     
     if (paymentResult.success) {
       const booking = await Booking.findOne({ bookingId: paymentResult.bookingId });
-      if (booking) {
+      if (booking &&
+          booking.paymentStatus === 'pending' &&
+          booking.transactionId === paymentResult.orderId &&
+          paymentResult.status === 'captured' &&
+          paymentResult.amount === booking.amount) {
         booking.paymentStatus = 'paid';
         booking.status = 'confirmed';
         booking.transactionId = paymentResult.transactionId;

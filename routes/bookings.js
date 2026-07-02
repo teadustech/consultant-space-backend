@@ -3,10 +3,11 @@ const router = express.Router();
 const Booking = require('../models/Booking');
 const Consultant = require('../models/Consultant');
 const Seeker = require('../models/Seeker');
-const { authenticateToken } = require('../middleware/auth');
-const { body, validationResult } = require('express-validator');
+const { authenticateToken, requireSeeker } = require('../middleware/auth');
+const { body, param, query, validationResult } = require('express-validator');
 const googleMeetService = require('../utils/googleMeetService');
 const emailService = require('../utils/emailService');
+const { publicSearchLimiter } = require('../middleware/rateLimiter');
 
 // Validation middleware
 const validateBooking = [
@@ -16,11 +17,14 @@ const validateBooking = [
   body('sessionDate').isISO8601().withMessage('Invalid session date'),
   body('startTime').matches(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/).withMessage('Start time must be in HH:MM format'),
   body('meetingPlatform').isIn(['google_meet']).withMessage('Invalid meeting platform'),
-  body('description').optional().isLength({ max: 1000 }).withMessage('Description too long')
+  body('description').optional().isLength({ max: 1000 }).withMessage('Description too long'),
+  body('serviceId').optional().isString().trim().isLength({ max: 120 }).withMessage('Service ID is too long'),
+  body('serviceName').optional().isString().trim().isLength({ max: 120 }).withMessage('Service name is too long'),
+  body('servicePrice').optional().isFloat({ min: 0 }).withMessage('Service price must be a valid non-negative number')
 ];
 
 // Create a new booking
-router.post('/', authenticateToken, validateBooking, async (req, res) => {
+router.post('/', authenticateToken, requireSeeker, validateBooking, async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -34,7 +38,10 @@ router.post('/', authenticateToken, validateBooking, async (req, res) => {
       sessionDate,
       startTime,
       meetingPlatform,
-      description
+      description,
+      serviceId,
+      serviceName,
+      servicePrice
     } = req.body;
 
     const seekerId = req.user.userId;
@@ -120,16 +127,18 @@ router.post('/', authenticateToken, validateBooking, async (req, res) => {
 
     // Check for time conflicts
     const endTime = new Date(bookingDate.getTime() + sessionDuration * 60000);
+    const dayStart = new Date(bookingDate);
+    dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(bookingDate);
+    dayEnd.setHours(23, 59, 59, 999);
+    const requestedEndTime = endTime.toTimeString().slice(0, 5);
+
     const existingBookings = await Booking.find({
       consultant: consultantId,
-      sessionDate: bookingDate,
+      sessionDate: { $gte: dayStart, $lte: dayEnd },
       status: { $in: ['pending', 'confirmed'] },
-      $or: [
-        {
-          startTime: { $lt: endTime.toTimeString().slice(0, 5) },
-          endTime: { $gt: startTime }
-        }
-      ]
+      startTime: { $lt: requestedEndTime },
+      endTime: { $gt: startTime }
     });
 
     if (existingBookings.length > 0) {
@@ -137,7 +146,10 @@ router.post('/', authenticateToken, validateBooking, async (req, res) => {
     }
 
     // Calculate amount
-    const amount = Math.round((consultant.hourlyRate * sessionDuration) / 60);
+    const requestedServicePrice = servicePrice !== undefined ? Number(servicePrice) : null;
+    const amount = Number.isFinite(requestedServicePrice) && requestedServicePrice > 0
+      ? Math.round(requestedServicePrice)
+      : Math.round((consultant.hourlyRate * sessionDuration) / 60);
 
     // Create booking with pending status for prepaid model
     const booking = new Booking({
@@ -149,6 +161,9 @@ router.post('/', authenticateToken, validateBooking, async (req, res) => {
       startTime,
       meetingPlatform,
       description,
+      serviceId,
+      serviceName,
+      servicePrice: requestedServicePrice,
       amount,
       status: 'pending', // Pending until payment is completed
       paymentStatus: 'pending' // Payment required before confirmation
@@ -301,6 +316,14 @@ router.patch('/:id/status', authenticateToken, async (req, res) => {
       return res.status(403).json({ message: 'Access denied' });
     }
 
+    if (status === 'confirmed') {
+      return res.status(403).json({ message: 'Bookings are confirmed only after verified payment' });
+    }
+
+    if (['completed', 'no_show'].includes(status) && userType !== 'consultant') {
+      return res.status(403).json({ message: 'Only the consultant can complete or mark a session as no-show' });
+    }
+
     // Validate status transition
     const validTransitions = {
       pending: ['confirmed', 'cancelled'],
@@ -310,6 +333,11 @@ router.patch('/:id/status', authenticateToken, async (req, res) => {
       no_show: [],
       rescheduled: ['confirmed', 'cancelled']
     };
+
+    if (!Object.prototype.hasOwnProperty.call(validTransitions, booking.status) ||
+        !Object.values(validTransitions).flat().includes(status)) {
+      return res.status(400).json({ message: 'Invalid booking status transition' });
+    }
 
     if (!validTransitions[booking.status].includes(status)) {
       return res.status(400).json({ 
@@ -340,11 +368,6 @@ router.patch('/:id/status', authenticateToken, async (req, res) => {
           // Continue with cancellation even if event deletion fails
         }
       }
-    }
-
-    // Handle completion
-    if (status === 'completed') {
-      booking.paymentStatus = 'paid';
     }
 
     // Generate or update Google Meet link when booking is confirmed
@@ -474,8 +497,17 @@ router.post('/:id/review', authenticateToken, [
 });
 
 // Get consultant's availability for a date range
-router.get('/consultant/:consultantId/availability', async (req, res) => {
+router.get('/consultant/:consultantId/availability', publicSearchLimiter, [
+  param('consultantId').isMongoId().withMessage('Invalid consultant ID'),
+  query('startDate').isISO8601().withMessage('Invalid start date'),
+  query('endDate').isISO8601().withMessage('Invalid end date')
+], async (req, res) => {
   try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
     const { consultantId } = req.params;
     const { startDate, endDate } = req.query;
 
@@ -488,10 +520,17 @@ router.get('/consultant/:consultantId/availability', async (req, res) => {
       return res.status(404).json({ message: 'Consultant not found' });
     }
 
+    const requestedStartDate = new Date(startDate);
+    const requestedEndDate = new Date(endDate);
+    const rangeInDays = (requestedEndDate - requestedStartDate) / (1000 * 60 * 60 * 24);
+    if (rangeInDays < 0 || rangeInDays > 31) {
+      return res.status(400).json({ message: 'Availability range must be between 0 and 31 days' });
+    }
+
     // Get existing bookings in the date range
     const existingBookings = await Booking.findByDateRange(
-      new Date(startDate),
-      new Date(endDate),
+      requestedStartDate,
+      requestedEndDate,
       consultantId
     );
 
@@ -634,17 +673,19 @@ router.patch('/:id/reschedule', authenticateToken, [
 
     // Check for conflicts
     const endTime = new Date(newBookingDate.getTime() + booking.sessionDuration * 60000);
+    const newDayStart = new Date(newBookingDate);
+    newDayStart.setHours(0, 0, 0, 0);
+    const newDayEnd = new Date(newBookingDate);
+    newDayEnd.setHours(23, 59, 59, 999);
+    const requestedEndTime = endTime.toTimeString().slice(0, 5);
+
     const existingBookings = await Booking.find({
       consultant: booking.consultant,
-      sessionDate: newBookingDate,
+      sessionDate: { $gte: newDayStart, $lte: newDayEnd },
       status: { $in: ['pending', 'confirmed'] },
       _id: { $ne: bookingId },
-      $or: [
-        {
-          startTime: { $lt: endTime.toTimeString().slice(0, 5) },
-          endTime: { $gt: startTime }
-        }
-      ]
+      startTime: { $lt: requestedEndTime },
+      endTime: { $gt: startTime }
     });
 
     if (existingBookings.length > 0) {
@@ -699,4 +740,4 @@ router.patch('/:id/reschedule', authenticateToken, [
   }
 });
 
-module.exports = router; 
+module.exports = router;

@@ -162,6 +162,43 @@ const consultantSchema = new mongoose.Schema({
   profileImage: {
     type: String
   },
+  username: {
+    type: String,
+    trim: true,
+    lowercase: true,
+    unique: true,
+    sparse: true
+  },
+  tagline: {
+    type: String,
+    trim: true
+  },
+  qualifications: {
+    type: String,
+    trim: true
+  },
+  experienceSummary: {
+    type: String,
+    trim: true
+  },
+  profileEnabled: {
+    type: Boolean,
+    default: false
+  },
+  profilePicture: {
+    type: String
+  },
+  profileExpertise: [{
+    type: String,
+    trim: true
+  }],
+  services: [{
+    id: { type: String },
+    name: { type: String, trim: true },
+    description: { type: String, trim: true },
+    price: { type: Number, min: 0 },
+    duration: { type: String, trim: true }
+  }],
   createdAt: {
     type: Date,
     default: Date.now

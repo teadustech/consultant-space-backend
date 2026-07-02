@@ -5,13 +5,19 @@ const Admin = require('../models/Admin');
 const Consultant = require('../models/Consultant');
 const Seeker = require('../models/Seeker');
 const { authenticateAdmin, requireAdminPermission, ADMIN_PERMISSIONS } = require('../middleware/adminAuth');
+const { authLimiter } = require('../middleware/rateLimiter');
+
+const isStrongEnoughPassword = (password) => typeof password === 'string' && password.length >= 12;
 
 // Admin Authentication Routes
 
 // Admin login
-router.post('/login', async (req, res) => {
+router.post('/login', authLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
+    if (typeof email !== 'string' || typeof password !== 'string') {
+      return res.status(400).json({ message: 'Email and password are required' });
+    }
 
     // Find admin by email
     const admin = await Admin.findOne({ email: email.toLowerCase() });
@@ -503,6 +509,9 @@ router.get('/admins', authenticateAdmin, requireAdminPermission(ADMIN_PERMISSION
 router.post('/admins', authenticateAdmin, requireAdminPermission(ADMIN_PERMISSIONS.SYSTEM_ADMIN), async (req, res) => {
   try {
     const { fullName, email, password, role, permissions } = req.body;
+    if (!isStrongEnoughPassword(password)) {
+      return res.status(400).json({ message: 'Password must be at least 12 characters long' });
+    }
 
     // Check if admin already exists
     const existingAdmin = await Admin.findOne({ email: email.toLowerCase() });
@@ -651,4 +660,4 @@ router.put('/settings', authenticateAdmin, requireAdminPermission(ADMIN_PERMISSI
   }
 });
 
-module.exports = router; 
+module.exports = router;

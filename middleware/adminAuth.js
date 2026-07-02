@@ -1,7 +1,8 @@
 const jwt = require('jsonwebtoken');
+const Admin = require('../models/Admin');
 
 // Middleware to verify admin JWT token
-const authenticateAdmin = (req, res, next) => {
+const authenticateAdmin = async (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
 
@@ -9,7 +10,7 @@ const authenticateAdmin = (req, res, next) => {
     return res.status(401).json({ message: 'Admin access token required' });
   }
 
-  jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
+  jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] }, async (err, user) => {
     if (err) {
       return res.status(403).json({ message: 'Invalid or expired admin token' });
     }
@@ -19,8 +20,22 @@ const authenticateAdmin = (req, res, next) => {
       return res.status(403).json({ message: 'Admin access required' });
     }
     
-    req.admin = user;
-    next();
+    try {
+      const admin = await Admin.findById(user.adminId).select('role permissions isActive');
+      if (!admin || !admin.isActive) {
+        return res.status(403).json({ message: 'Admin account is inactive or unavailable' });
+      }
+
+      req.admin = {
+        ...user,
+        role: admin.role,
+        permissions: admin.permissions
+      };
+      next();
+    } catch (error) {
+      console.error('Admin authorization error:', error);
+      return res.status(500).json({ message: 'Unable to authorize admin request' });
+    }
   });
 };
 
@@ -54,4 +69,4 @@ module.exports = {
   authenticateAdmin,
   requireAdminPermission,
   ADMIN_PERMISSIONS
-}; 
+};

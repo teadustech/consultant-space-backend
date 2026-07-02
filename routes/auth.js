@@ -7,6 +7,9 @@ const Consultant = require('../models/Consultant');
 const Seeker = require('../models/Seeker');
 const { sendPasswordResetEmail, sendPasswordResetConfirmation } = require('../utils/emailService');
 const { authenticateToken } = require('../middleware/auth');
+const { authLimiter, passwordResetLimiter } = require('../middleware/rateLimiter');
+
+const isStrongEnoughPassword = (password) => typeof password === 'string' && password.length >= 12;
 
 // Allow only admin for listing all seekers
 const requireAdmin = (req, res, next) => {
@@ -27,9 +30,12 @@ const requireSeekerOwnProfileOrAdmin = (req, res, next) => {
 };
 
 // Consultant Registration
-router.post('/consultant/register', async (req, res) => {
+router.post('/consultant/register', authLimiter, async (req, res) => {
   try {
     const { fullName, email, phone, domain, experience, rate, password } = req.body;
+    if (!isStrongEnoughPassword(password)) {
+      return res.status(400).json({ message: 'Password must be at least 12 characters long' });
+    }
 
     // Check if consultant already exists
     const existingConsultant = await Consultant.findOne({ email });
@@ -79,9 +85,12 @@ router.post('/consultant/register', async (req, res) => {
 });
 
 // Seeker Registration
-router.post('/seeker/register', async (req, res) => {
+router.post('/seeker/register', authLimiter, async (req, res) => {
   try {
     const { fullName, email, phone, password } = req.body;
+    if (!isStrongEnoughPassword(password)) {
+      return res.status(400).json({ message: 'Password must be at least 12 characters long' });
+    }
 
     // Check if seeker already exists
     const existingSeeker = await Seeker.findOne({ email });
@@ -127,7 +136,7 @@ router.post('/seeker/register', async (req, res) => {
 });
 
 // Login (for both consultants and seekers)
-router.post('/login', async (req, res) => {
+router.post('/login', authLimiter, async (req, res) => {
   try {
     const { email, password, userType } = req.body;
 
@@ -238,7 +247,7 @@ router.put('/seekers/:id/profile', authenticateToken, requireSeekerOwnProfileOrA
 });
 
 // Request password reset
-router.post('/forgot-password', async (req, res) => {
+router.post('/forgot-password', passwordResetLimiter, async (req, res) => {
   try {
     const { email, userType } = req.body;
 
@@ -285,12 +294,16 @@ router.post('/forgot-password', async (req, res) => {
 });
 
 // Reset password with token
-router.post('/reset-password', async (req, res) => {
+router.post('/reset-password', passwordResetLimiter, async (req, res) => {
   try {
     const { token, userType, newPassword } = req.body;
 
     if (!token || !userType || !newPassword || !['consultant', 'seeker'].includes(userType)) {
       return res.status(400).json({ message: 'Token, user type, and new password are required' });
+    }
+
+    if (!isStrongEnoughPassword(newPassword)) {
+      return res.status(400).json({ message: 'Password must be at least 12 characters long' });
     }
 
     // Find user based on type
@@ -326,7 +339,7 @@ router.post('/reset-password', async (req, res) => {
 });
 
 // Verify reset token
-router.post('/verify-reset-token', async (req, res) => {
+router.post('/verify-reset-token', passwordResetLimiter, async (req, res) => {
   try {
     const { token, userType } = req.body;
 

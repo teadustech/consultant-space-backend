@@ -112,12 +112,7 @@ class GoogleMeetService {
     } catch (error) {
       console.error('❌ Error creating Google Meet link:', error.message);
       
-      // Return a fallback meeting link format
-      return {
-        meetingLink: `https://meet.google.com/${this.generateMeetingId()}`,
-        eventId: null,
-        joinUrl: `https://meet.google.com/${this.generateMeetingId()}`
-      };
+      return null;
     }
   }
 
