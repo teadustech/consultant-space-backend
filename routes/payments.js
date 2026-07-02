@@ -57,8 +57,9 @@ router.post('/create-order', authenticateToken, validatePaymentOrder, async (req
       return res.status(404).json({ message: 'Booking not found' });
     }
 
-    // Check if booking belongs to the seeker
-    if (booking.seeker.toString() !== seekerId) {
+    // Check if booking belongs to the seeker. booking.seeker is populated above.
+    const bookingSeekerId = booking.seeker?._id || booking.seeker;
+    if (bookingSeekerId.toString() !== seekerId) {
       return res.status(403).json({ message: 'Access denied' });
     }
 
@@ -134,8 +135,9 @@ router.post('/verify', authenticateToken, validatePaymentVerification, async (re
       return res.status(404).json({ message: 'Booking not found' });
     }
 
-    // Check if booking belongs to the seeker
-    if (booking.seeker.toString() !== seekerId) {
+    // Check if booking belongs to the seeker. booking.seeker is populated above.
+    const bookingSeekerId = booking.seeker?._id || booking.seeker;
+    if (bookingSeekerId.toString() !== seekerId) {
       return res.status(403).json({ message: 'Access denied' });
     }
 
