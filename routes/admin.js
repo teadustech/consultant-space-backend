@@ -18,9 +18,13 @@ router.post('/login', authLimiter, async (req, res) => {
     if (typeof email !== 'string' || typeof password !== 'string') {
       return res.status(400).json({ message: 'Email and password are required' });
     }
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail || !password) {
+      return res.status(400).json({ message: 'Email and password are required' });
+    }
 
     // Find admin by email
-    const admin = await Admin.findOne({ email: email.toLowerCase() });
+    const admin = await Admin.findOne({ email: normalizedEmail });
     if (!admin) {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
@@ -261,6 +265,22 @@ router.get('/consultants', authenticateAdmin, requireAdminPermission(ADMIN_PERMI
   } catch (error) {
     console.error('Get consultants error:', error);
     res.status(500).json({ message: 'Failed to fetch consultants' });
+  }
+});
+
+// Get consultant by ID for admin review
+router.get('/consultants/:id', authenticateAdmin, requireAdminPermission(ADMIN_PERMISSIONS.MANAGE_CONSULTANTS), async (req, res) => {
+  try {
+    const consultant = await Consultant.findById(req.params.id).select('-password -resetPasswordToken -resetPasswordExpires');
+
+    if (!consultant) {
+      return res.status(404).json({ message: 'Consultant not found' });
+    }
+
+    res.json({ consultant });
+  } catch (error) {
+    console.error('Get consultant detail error:', error);
+    res.status(500).json({ message: 'Failed to fetch consultant details' });
   }
 });
 
