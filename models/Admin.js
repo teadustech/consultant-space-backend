@@ -170,6 +170,13 @@ adminSchema.methods.getDefaultPermissions = function() {
   return permissionMap[this.role] || [];
 };
 
+// Use explicit permissions when configured; otherwise fall back to the role defaults.
+adminSchema.methods.getEffectivePermissions = function() {
+  return Array.isArray(this.permissions) && this.permissions.length > 0
+    ? this.permissions
+    : this.getDefaultPermissions();
+};
+
 // Create indexes for better performance
 adminSchema.index({ role: 1 });
 adminSchema.index({ isActive: 1 });
