@@ -51,6 +51,7 @@ router.post('/login', authLimiter, async (req, res) => {
 
     // Reset login attempts on successful login
     await admin.resetLoginAttempts();
+    const permissions = admin.getEffectivePermissions();
 
     // Generate JWT token
     const token = jwt.sign(
@@ -58,7 +59,7 @@ router.post('/login', authLimiter, async (req, res) => {
         adminId: admin._id, 
         userType: 'admin',
         role: admin.role,
-        permissions: admin.permissions
+        permissions
       },
       process.env.JWT_SECRET,
       { expiresIn: '24h' }
@@ -72,7 +73,7 @@ router.post('/login', authLimiter, async (req, res) => {
         fullName: admin.fullName,
         email: admin.email,
         role: admin.role,
-        permissions: admin.permissions,
+        permissions,
         lastLogin: admin.lastLogin
       }
     });
@@ -545,8 +546,14 @@ router.post('/admins', authenticateAdmin, requireAdminPermission(ADMIN_PERMISSIO
       email: email.toLowerCase(),
       password,
       role,
-      permissions: permissions || []
+      permissions: Array.isArray(permissions) && permissions.length > 0
+        ? permissions
+        : undefined
     });
+
+    if (!admin.permissions || admin.permissions.length === 0) {
+      admin.permissions = admin.getDefaultPermissions();
+    }
 
     await admin.save();
 

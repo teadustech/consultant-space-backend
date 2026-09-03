@@ -29,7 +29,7 @@ const authenticateAdmin = async (req, res, next) => {
       req.admin = {
         ...user,
         role: admin.role,
-        permissions: admin.permissions
+        permissions: admin.getEffectivePermissions()
       };
       next();
     } catch (error) {
